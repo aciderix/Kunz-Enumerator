@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Play, Square, Download, Database, Activity, Clock, FileJson, BarChart2, Globe, AlertTriangle, CheckCircle2, Menu, X } from 'lucide-react';
+import { Play, Square, Download, Upload, Database, Activity, Clock, FileJson, BarChart2, Globe, AlertTriangle, CheckCircle2, Menu, X } from 'lucide-react';
 import { saveResult, getResult, getAllResults, getAllKeys, KunzTaskResult } from './lib/db';
 import { KunzResult } from './lib/kunz';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -29,6 +29,7 @@ export default function App() {
 
   const [isRunning, setIsRunning] = useState(false);
   const [isContinuous, setIsContinuous] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [activeTab, setActiveTab] = useState<'analysis' | 'stats' | 'saturation'>('analysis');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
@@ -41,6 +42,7 @@ export default function App() {
 
   const workerRef = useRef<Worker | null>(null);
   const queueRef = useRef<{ m: number; k_max: number }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const isRunningRef = useRef(false);
   const isContinuousRef = useRef(false);
@@ -207,6 +209,45 @@ export default function App() {
     downloadAnchorNode.remove();
   };
 
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid file format. Expected an array of results.");
+      }
+
+      let importedCount = 0;
+      for (const item of data) {
+        // Basic validation to ensure it's a KunzTaskResult
+        if (item.m !== undefined && item.k_max !== undefined && item.res) {
+          await saveResult(item as KunzTaskResult);
+          importedCount++;
+        }
+      }
+      
+      await loadResults();
+      alert(`Successfully imported ${importedCount} results!`);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to import JSON file. Please make sure it's a valid export file from this application.");
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''; // Reset input so the same file can be selected again if needed
+      }
+    }
+  };
+
   const formatNumber = (num: number) => new Intl.NumberFormat().format(num);
   const formatTime = (ms: number) => {
     if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -324,14 +365,14 @@ export default function App() {
               <button
                 className={`flex-1 text-xs font-medium py-2 md:py-1.5 rounded-md transition-colors ${!isContinuous ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 onClick={() => setIsContinuous(false)}
-                disabled={isRunning}
+                disabled={isRunning || isImporting}
               >
                 Fixed Range
               </button>
               <button
                 className={`flex-1 text-xs font-medium py-2 md:py-1.5 rounded-md transition-colors ${isContinuous ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 onClick={() => setIsContinuous(true)}
-                disabled={isRunning}
+                disabled={isRunning || isImporting}
               >
                 Infinite Auto
               </button>
@@ -351,22 +392,22 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Start m</label>
-                    <input type="number" value={config.mStart} onChange={e => setConfig({...config, mStart: parseInt(e.target.value) || 2})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning} />
+                    <input type="number" value={config.mStart} onChange={e => setConfig({...config, mStart: parseInt(e.target.value) || 2})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning || isImporting} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">End m</label>
-                    <input type="number" value={config.mEnd} onChange={e => setConfig({...config, mEnd: parseInt(e.target.value) || 2})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning} />
+                    <input type="number" value={config.mEnd} onChange={e => setConfig({...config, mEnd: parseInt(e.target.value) || 2})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning || isImporting} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Start k_max</label>
-                    <input type="number" value={config.kStart} onChange={e => setConfig({...config, kStart: parseInt(e.target.value) || 1})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning} />
+                    <input type="number" value={config.kStart} onChange={e => setConfig({...config, kStart: parseInt(e.target.value) || 1})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning || isImporting} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">End k_max</label>
-                    <input type="number" value={config.kEnd} onChange={e => setConfig({...config, kEnd: parseInt(e.target.value) || 1})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning} />
+                    <input type="number" value={config.kEnd} onChange={e => setConfig({...config, kEnd: parseInt(e.target.value) || 1})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning || isImporting} />
                   </div>
                 </div>
               </>
@@ -379,27 +420,27 @@ export default function App() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Min d</label>
-                <input type="number" value={config.dMin} onChange={e => setConfig({...config, dMin: parseInt(e.target.value) || 0})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning} />
+                <input type="number" value={config.dMin} onChange={e => setConfig({...config, dMin: parseInt(e.target.value) || 0})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning || isImporting} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Max d</label>
-                <input type="number" value={config.dMax} onChange={e => setConfig({...config, dMax: parseInt(e.target.value) || 64})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning} />
+                <input type="number" value={config.dMax} onChange={e => setConfig({...config, dMax: parseInt(e.target.value) || 64})} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500" disabled={isRunning || isImporting} />
               </div>
             </div>
 
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <input type="checkbox" id="hasWMax" checked={config.hasWMax} onChange={e => setConfig({...config, hasWMax: e.target.checked})} disabled={isRunning} className="rounded text-blue-600 focus:ring-blue-500" />
+                <input type="checkbox" id="hasWMax" checked={config.hasWMax} onChange={e => setConfig({...config, hasWMax: e.target.checked})} disabled={isRunning || isImporting} className="rounded text-blue-600 focus:ring-blue-500" />
                 <label htmlFor="hasWMax" className="text-xs font-medium text-gray-700">Enable Max W</label>
               </div>
-              <input type="number" value={config.wMax} onChange={e => setConfig({...config, wMax: parseInt(e.target.value) || 0})} disabled={!config.hasWMax || isRunning} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400" />
+              <input type="number" value={config.wMax} onChange={e => setConfig({...config, wMax: parseInt(e.target.value) || 0})} disabled={!config.hasWMax || isRunning || isImporting} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400" />
             </div>
           </div>
         </div>
 
         <div className="p-4 md:p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
           {!isRunning ? (
-            <button onClick={handleStart} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 md:py-2.5 rounded-md font-medium transition-colors shadow-sm">
+            <button onClick={handleStart} disabled={isImporting} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 md:py-2.5 rounded-md font-medium transition-colors shadow-sm disabled:opacity-50">
               <Play className="w-4 h-4" /> Start Analysis
             </button>
           ) : (
@@ -420,12 +461,32 @@ export default function App() {
               <p className="text-sm text-gray-500 mt-1">
                 {isRunning 
                   ? (isContinuous ? 'Exploring infinite spectrum diagonally...' : `Running task ${queueRef.current.length + 1} remaining in queue`) 
-                  : 'Idle'}
+                  : isImporting ? 'Importing data...' : 'Idle'}
               </p>
             </div>
-            <button onClick={handleExport} className="flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-300 px-3 py-2 md:py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm w-full sm:w-auto">
-              <Download className="w-4 h-4" /> Export JSON
-            </button>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <input 
+                type="file" 
+                accept=".json,application/json,text/plain,*/*" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                className="hidden" 
+              />
+              <button 
+                onClick={handleImportClick} 
+                disabled={isImporting || isRunning}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-300 px-3 py-2 md:py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" /> {isImporting ? 'Importing...' : 'Import JSON'}
+              </button>
+              <button 
+                onClick={handleExport} 
+                disabled={isImporting || results.length === 0}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-300 px-3 py-2 md:py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" /> Export JSON
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}
