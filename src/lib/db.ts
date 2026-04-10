@@ -66,3 +66,13 @@ export async function getAllKeys(): Promise<[number, number][]> {
         req.onerror = () => reject(req.error);
     });
 }
+
+export async function clearAllResults(): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const req = tx.objectStore(STORE_NAME).clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+    });
+}

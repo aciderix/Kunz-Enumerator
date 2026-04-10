@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Play, Square, Download, Upload, Database, Activity, Clock, FileJson, BarChart2, Globe, AlertTriangle, CheckCircle2, Menu, X } from 'lucide-react';
-import { saveResult, getResult, getAllResults, getAllKeys, KunzTaskResult } from './lib/db';
+import { Play, Square, Download, Upload, Database, Activity, Clock, FileJson, BarChart2, Globe, AlertTriangle, CheckCircle2, Menu, X, Trash2 } from 'lucide-react';
+import { saveResult, getResult, getAllResults, getAllKeys, clearAllResults, KunzTaskResult } from './lib/db';
 import { KunzResult } from './lib/kunz';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -15,7 +15,47 @@ interface Config {
   hasWMax: boolean;
 }
 
-export default function App() {
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 text-center">
+          <AlertTriangle className="w-16 h-16 text-red-600 mb-4" />
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Data Corruption Error</h1>
+          <p className="text-gray-600 mb-6 max-w-md">
+            The application encountered a critical error while reading the cached data. This usually happens if an imported JSON file was malformed or incomplete.
+          </p>
+          <button 
+            onClick={async () => {
+              try {
+                await clearAllResults();
+                window.location.reload();
+              } catch (e) {
+                // Fallback if clearAllResults fails
+                const req = indexedDB.deleteDatabase('kunz_db');
+                req.onsuccess = () => window.location.reload();
+                req.onerror = () => alert("Failed to clear database. Please clear your browser data manually.");
+              }
+            }}
+            className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-md font-medium transition-colors shadow-sm"
+          >
+            Clear Cache & Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function KunzApp() {
   const [config, setConfig] = useState<Config>({
     mStart: 3,
     mEnd: 5,
@@ -260,6 +300,7 @@ export default function App() {
   };
 
   const getChartData = (res: KunzResult) => {
+    if (!res || !res.counts || !res.W_min) return [];
     const data = [];
     for (let d = 0; d < res.counts.length; d++) {
       if (res.counts[d] > 0) {
@@ -285,14 +326,14 @@ export default function App() {
     const mRes = results.filter(r => r.m === selectedM).sort((a, b) => a.k_max - b.k_max);
     const validDs = new Set<number>();
     mRes.forEach(r => {
-      r.res.W_min.forEach((w, d) => {
+      r.res?.W_min?.forEach((w: number, d: number) => {
         if (w !== Number.MAX_SAFE_INTEGER) validDs.add(d);
       });
     });
     const chartData = mRes.map(r => {
       const dataPoint: any = { k_max: r.k_max };
       validDs.forEach(d => {
-        const val = r.res.W_min[d];
+        const val = r.res?.W_min?.[d];
         dataPoint[`d=${d}`] = val === Number.MAX_SAFE_INTEGER ? null : val;
       });
       return dataPoint;
@@ -308,11 +349,11 @@ export default function App() {
     let wNegFound = false;
 
     results.forEach(r => {
-      totalLeaves += r.res.leaves_raw;
-      totalTime += r.timeTakenMs;
+      totalLeaves += r.res?.leaves_raw || 0;
+      totalTime += r.timeTakenMs || 0;
       if (r.m > maxM) maxM = r.m;
       if (r.k_max > maxK) maxK = r.k_max;
-      if (r.res.W_neg.some(v => v > 0)) wNegFound = true;
+      if (r.res?.W_neg?.some((v: number) => v > 0)) wNegFound = true;
     });
 
     return { totalLeaves, totalTime, maxM, maxK, wNegFound, totalTasks: results.length };
@@ -480,6 +521,24 @@ export default function App() {
                 <Upload className="w-4 h-4" /> {isImporting ? 'Importing...' : 'Import JSON'}
               </button>
               <button 
+                onClick={async () => {
+                  if (window.confirm("Are you sure you want to delete all cached results? This cannot be undone!")) {
+                    try {
+                      await clearAllResults();
+                      window.location.reload();
+                    } catch (e) {
+                      const req = indexedDB.deleteDatabase('kunz_db');
+                      req.onsuccess = () => window.location.reload();
+                    }
+                  }
+                }} 
+                disabled={isRunning || isImporting}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-red-600 hover:text-red-700 bg-white border border-red-200 hover:border-red-300 px-3 py-2 md:py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+                title="Clear all cached results"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <button 
                 onClick={handleExport} 
                 disabled={isImporting || results.length === 0}
                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-300 px-3 py-2 md:py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
@@ -520,7 +579,7 @@ export default function App() {
                 </div>
                 {currentResult && (
                   <span className="text-xs md:text-sm text-blue-700 font-mono hidden sm:inline">
-                    Leaves: {formatNumber(currentResult.leaves_raw)}
+                    Leaves: {formatNumber(currentResult?.leaves_raw || 0)}
                   </span>
                 )}
               </div>
@@ -558,7 +617,7 @@ export default function App() {
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
-                          Leaves: {formatNumber(r.res.leaves_raw)}
+                          Leaves: {formatNumber(r.res?.leaves_raw || 0)}
                         </div>
                       </li>
                     ))}
@@ -582,19 +641,19 @@ export default function App() {
                       <div className="bg-gray-50 p-3 md:p-4 rounded-lg border border-gray-100">
                         <div className="text-xs md:text-sm text-gray-500 mb-1">Raw Leaves</div>
                         <div className="text-lg md:text-xl font-semibold text-gray-900 font-mono">
-                          {formatNumber((selectedResult?.res || currentResult!).leaves_raw)}
+                          {formatNumber((selectedResult?.res || currentResult!)?.leaves_raw || 0)}
                         </div>
                       </div>
                       <div className="bg-gray-50 p-3 md:p-4 rounded-lg border border-gray-100">
                         <div className="text-xs md:text-sm text-gray-500 mb-1">Valid Leaves</div>
                         <div className="text-lg md:text-xl font-semibold text-gray-900 font-mono">
-                          {formatNumber((selectedResult?.res || currentResult!).leaves_valid)}
+                          {formatNumber((selectedResult?.res || currentResult!)?.leaves_valid || 0)}
                         </div>
                       </div>
                       <div className="bg-gray-50 p-3 md:p-4 rounded-lg border border-gray-100">
                         <div className="text-xs md:text-sm text-gray-500 mb-1">Kept Leaves</div>
                         <div className="text-lg md:text-xl font-semibold text-gray-900 font-mono">
-                          {formatNumber((selectedResult?.res || currentResult!).leaves_kept)}
+                          {formatNumber((selectedResult?.res || currentResult!)?.leaves_kept || 0)}
                         </div>
                       </div>
                     </div>
@@ -747,5 +806,13 @@ export default function App() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <KunzApp />
+    </ErrorBoundary>
   );
 }
